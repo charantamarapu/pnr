@@ -19,6 +19,7 @@
       --warning: #f59e0b;
       --danger: #ef4444;
       --timing-blue: #60a5fa;
+      --station-highlight: #e2e8f0;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -115,7 +116,7 @@
       padding: 16px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 12px;
       transition: border-color 0.2s;
     }
 
@@ -155,21 +156,20 @@
     }
 
     .timing-banner {
-      background: rgba(31, 41, 55, 0.6);
+      background: rgba(31, 41, 55, 0.7);
       border: 1px solid #1e293b;
       border-radius: 6px;
-      padding: 8px 12px;
-      display: flex;
-      justify-content: space-between;
+      padding: 10px 14px;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
       align-items: center;
-      font-size: 0.85rem;
-      margin: 2px 0;
+      gap: 12px;
     }
 
     .timing-item {
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 3px;
     }
 
     .timing-label {
@@ -180,9 +180,27 @@
     }
 
     .timing-val {
-      font-weight: 600;
+      font-weight: 700;
       color: var(--timing-blue);
-      font-size: 0.92rem;
+      font-size: 0.95rem;
+    }
+
+    .station-display {
+      font-size: 0.82rem;
+      color: var(--station-highlight);
+      font-weight: 500;
+      line-height: 1.25;
+    }
+
+    .station-code-pill {
+      display: inline-block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      background: #374151;
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: #93c5fd;
+      margin-left: 3px;
     }
 
     .status-badge {
@@ -253,7 +271,38 @@
   // Hardcoded Cloudflare Worker Endpoint
   const WORKER_URL = "https://pnr.charantamarapu.workers.dev";
 
-  // Pre-loaded trip legs from your tickets
+  // Indian Railways Station Code-to-Name Dictionary
+  const STATION_NAMES = {
+    "PER": "Perambur",
+    "MAS": "MGR Chennai Central",
+    "MS": "Chennai Egmore",
+    "NGP": "Nagpur Junction",
+    "NZM": "Hazrat Nizamuddin",
+    "NDLS": "New Delhi",
+    "DLI": "Old Delhi",
+    "HW": "Haridwar Junction",
+    "HRI": "Hardoi",
+    "AYC": "Ayodhya Cantt",
+    "AY": "Ayodhya Dham Jn",
+    "LKO": "Lucknow Charbagh",
+    "LJN": "Lucknow Jn NER",
+    "PYGS": "Prayagraj Sangam",
+    "PRG": "Prayag Junction",
+    "PRYJ": "Prayagraj Junction",
+    "PRRB": "Prayagraj Rambag",
+    "BSB": "Varanasi Junction",
+    "BCY": "Varanasi City",
+    "GAYA": "Gaya Junction",
+    "PURI": "Puri Terminus",
+    "BZA": "Vijayawada Junction",
+    "SMVB": "SMVT Bengaluru",
+    "SBC": "KSR Bengaluru City",
+    "DNR": "Danapur",
+    "CNB": "Kanpur Central",
+    "BPL": "Bhopal Junction"
+  };
+
+  // Pre-loaded trip legs from your tickets[cite: 1]
   const defaultLegs = [
     { route: "Perambur → Nagpur", pnr: "4557771590" },
     { route: "Nagpur → Hazrat Nizamuddin", pnr: "4765547266" },
@@ -270,6 +319,23 @@
 
   let tripLegs = JSON.parse(localStorage.getItem('trip_pnrs')) || defaultLegs;
   let statusCache = JSON.parse(localStorage.getItem('status_cache') || '{}');
+
+  // Helper to format Station into "Station Name [CODE]"
+  function formatStation(code, apiName) {
+    const cleanCode = (code || '').trim().toUpperCase();
+    let name = (apiName || '').trim();
+
+    // If API provided only code as name or name is empty, lookup in dictionary
+    if (!name || name.toUpperCase() === cleanCode) {
+      name = STATION_NAMES[cleanCode] || cleanCode;
+    }
+
+    if (!cleanCode && !name) return 'N/A';
+    if (!cleanCode) return name;
+    if (name.toUpperCase() === cleanCode) return `<span class="station-code-pill">${cleanCode}</span>`;
+
+    return `${name} <span class="station-code-pill">${cleanCode}</span>`;
+  }
 
   function saveLegs() {
     localStorage.setItem('trip_pnrs', JSON.stringify(tripLegs));
@@ -368,11 +434,18 @@
           const chartPrepared = d.ChartPrepared ? 'Chart Prepared' : 'Chart Not Prepared';
           const passengers = d.PassengerStatus || d.passengers || [];
 
-          // Exact Departure & Arrival Timings and Station Names
+          // Exact Departure & Arrival Timings
           const deptTime = d.DepartureTime || d.sourceTime || d.SourceTime || '--:--';
           const arrTime = d.ArrivalTime || d.destinationTime || d.DestinationTime || '--:--';
-          const fromStn = d.BoardingStationName || d.From || d.from || 'Origin';
-          const toStn = d.DestinationStationName || d.To || d.to || 'Destination';
+
+          // Comprehensive station code & name extraction
+          const fromCode = d.BoardingPoint || d.From || d.from || '';
+          const fromName = d.BoardingStationName || d.FromStationName || d.fromStationName || '';
+          const toCode = d.ReservationUpto || d.To || d.to || '';
+          const toName = d.ReservationUptoName || d.DestinationStationName || d.destinationStationName || d.ToStationName || '';
+
+          const originDisplay = formatStation(fromCode, fromName);
+          const destDisplay = formatStation(toCode, toName);
 
           bodyHtml = `
             <div class="details-row">
@@ -380,18 +453,18 @@
               <div>📅 ${doj} | <span style="color: ${d.ChartPrepared ? 'var(--success)' : 'var(--warning)'}; font-weight: 500;">${chartPrepared}</span></div>
             </div>
 
-            <!-- Start & End Timing Banner -->
+            <!-- Start & End Timing Banner with Both Code & Full Name -->
             <div class="timing-banner">
               <div class="timing-item">
                 <span class="timing-label">Boarding / Start</span>
                 <span class="timing-val">🕒 ${deptTime}</span>
-                <span style="font-size: 0.75rem; color: #cbd5e1;">${fromStn}</span>
+                <div class="station-display">${originDisplay}</div>
               </div>
-              <div style="color: var(--text-muted); font-size: 1.1rem;">➔</div>
+              <div style="color: var(--text-muted); font-size: 1.2rem; text-align: center;">➔</div>
               <div class="timing-item" style="text-align: right;">
                 <span class="timing-label">Arrival / End</span>
                 <span class="timing-val">🕒 ${arrTime}</span>
-                <span style="font-size: 0.75rem; color: #cbd5e1;">${toStn}</span>
+                <div class="station-display">${destDisplay}</div>
               </div>
             </div>
 
