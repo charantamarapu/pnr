@@ -18,6 +18,7 @@
       --success: #10b981;
       --warning: #f59e0b;
       --danger: #ef4444;
+      --timing-blue: #60a5fa;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -114,7 +115,7 @@
       padding: 16px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
       transition: border-color 0.2s;
     }
 
@@ -151,6 +152,37 @@
       flex-wrap: wrap;
       gap: 8px;
       font-size: 0.85rem;
+    }
+
+    .timing-banner {
+      background: rgba(31, 41, 55, 0.6);
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      padding: 8px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.85rem;
+      margin: 2px 0;
+    }
+
+    .timing-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .timing-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .timing-val {
+      font-weight: 600;
+      color: var(--timing-blue);
+      font-size: 0.92rem;
     }
 
     .status-badge {
@@ -221,7 +253,7 @@
   // Hardcoded Cloudflare Worker Endpoint
   const WORKER_URL = "https://pnr.charantamarapu.workers.dev";
 
-  // Preloaded PNR numbers for your journey
+  // Pre-loaded trip legs from your tickets
   const defaultLegs = [
     { route: "Perambur → Nagpur", pnr: "4557771590" },
     { route: "Nagpur → Hazrat Nizamuddin", pnr: "4765547266" },
@@ -323,7 +355,7 @@
 
     container.innerHTML = tripLegs.map((leg, idx) => {
       const cached = statusCache[leg.pnr];
-      let bodyHtml = `<div style="color: var(--text-muted); font-size: 0.85rem;">Click "Check All Status" to inspect latest booking status.</div>`;
+      let bodyHtml = `<div style="color: var(--text-muted); font-size: 0.85rem;">Click "Check All Status" to inspect latest booking and train timings.</div>`;
 
       if (cached) {
         if (!cached.success) {
@@ -336,11 +368,33 @@
           const chartPrepared = d.ChartPrepared ? 'Chart Prepared' : 'Chart Not Prepared';
           const passengers = d.PassengerStatus || d.passengers || [];
 
+          // Exact Departure & Arrival Timings and Station Names
+          const deptTime = d.DepartureTime || d.sourceTime || d.SourceTime || '--:--';
+          const arrTime = d.ArrivalTime || d.destinationTime || d.DestinationTime || '--:--';
+          const fromStn = d.BoardingStationName || d.From || d.from || 'Origin';
+          const toStn = d.DestinationStationName || d.To || d.to || 'Destination';
+
           bodyHtml = `
             <div class="details-row">
               <div><strong>${trainNo} - ${trainName}</strong></div>
               <div>📅 ${doj} | <span style="color: ${d.ChartPrepared ? 'var(--success)' : 'var(--warning)'}; font-weight: 500;">${chartPrepared}</span></div>
             </div>
+
+            <!-- Start & End Timing Banner -->
+            <div class="timing-banner">
+              <div class="timing-item">
+                <span class="timing-label">Boarding / Start</span>
+                <span class="timing-val">🕒 ${deptTime}</span>
+                <span style="font-size: 0.75rem; color: #cbd5e1;">${fromStn}</span>
+              </div>
+              <div style="color: var(--text-muted); font-size: 1.1rem;">➔</div>
+              <div class="timing-item" style="text-align: right;">
+                <span class="timing-label">Arrival / End</span>
+                <span class="timing-val">🕒 ${arrTime}</span>
+                <span style="font-size: 0.75rem; color: #cbd5e1;">${toStn}</span>
+              </div>
+            </div>
+
             ${passengers.length > 0 ? `
               <table class="passenger-table">
                 <thead>
