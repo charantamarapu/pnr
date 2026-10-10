@@ -185,6 +185,12 @@
       font-size: 0.95rem;
     }
 
+    .timing-date {
+      font-size: 0.75rem;
+      color: #cbd5e1;
+      font-weight: 500;
+    }
+
     .station-display {
       font-size: 0.82rem;
       color: var(--station-highlight);
@@ -201,6 +207,18 @@
       border-radius: 3px;
       color: #93c5fd;
       margin-left: 3px;
+    }
+
+    .day-badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: #f59e0b;
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid #f59e0b;
+      padding: 1px 4px;
+      border-radius: 3px;
+      margin-left: 4px;
     }
 
     .status-badge {
@@ -268,10 +286,8 @@
 </div>
 
 <script>
-  // Hardcoded Cloudflare Worker Endpoint
   const WORKER_URL = "https://pnr.charantamarapu.workers.dev";
 
-  // Indian Railways Station Code-to-Name Dictionary
   const STATION_NAMES = {
     "PER": "Perambur",
     "MAS": "MGR Chennai Central",
@@ -302,7 +318,6 @@
     "BPL": "Bhopal Junction"
   };
 
-  // Pre-loaded trip legs from your tickets[cite: 1]
   const defaultLegs = [
     { route: "Perambur → Nagpur", pnr: "4557771590" },
     { route: "Nagpur → Hazrat Nizamuddin", pnr: "4765547266" },
@@ -320,12 +335,10 @@
   let tripLegs = JSON.parse(localStorage.getItem('trip_pnrs')) || defaultLegs;
   let statusCache = JSON.parse(localStorage.getItem('status_cache') || '{}');
 
-  // Helper to format Station into "Station Name [CODE]"
   function formatStation(code, apiName) {
     const cleanCode = (code || '').trim().toUpperCase();
     let name = (apiName || '').trim();
 
-    // If API provided only code as name or name is empty, lookup in dictionary
     if (!name || name.toUpperCase() === cleanCode) {
       name = STATION_NAMES[cleanCode] || cleanCode;
     }
@@ -335,6 +348,71 @@
     if (name.toUpperCase() === cleanCode) return `<span class="station-code-pill">${cleanCode}</span>`;
 
     return `${name} <span class="station-code-pill">${cleanCode}</span>`;
+  }
+
+  function extractDate(data) {
+    if (data.DateOfJourney) return data.DateOfJourney;
+    if (data.Doj) return data.Doj;
+    if (data.doj) return data.doj;
+    if (data.JourneyDate) return data.JourneyDate;
+    if (data.dateOfJourney) return data.dateOfJourney;
+    if (data.DepartureDate) return data.DepartureDate;
+
+    const rawDept = data.DepartureTime || data.sourceTime || '';
+    if (rawDept.includes('T')) {
+      const parts = rawDept.split('T')[0].split('-');
+      if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    }
+    return '';
+  }
+
+  function formatTime(val) {
+    if (!val) return '--:--';
+    if (val.includes('T')) {
+      const timePart = val.split('T')[1];
+      return timePart ? timePart.substring(0, 5) : '--:--';
+    }
+    return val;
+  }
+
+  // Calculates exact arrival date for overnight/multi-day runs
+  function computeArrivalDate(startDateStr, departureTime, arrivalTime, dayCount) {
+    if (!startDateStr) return '--';
+
+    const parts = startDateStr.split(/[-/]/);
+    if (parts.length !== 3) return startDateStr;
+
+    let day = parseInt(parts[0], 10);
+    let month = parseInt(parts[1], 10) - 1;
+    let year = parseInt(parts[2], 10);
+    if (year < 100) year += 2000;
+
+    const depDate = new Date(year, month, day);
+    let addedDays = 0;
+
+    if (dayCount && !isNaN(dayCount) && dayCount > 1) {
+      addedDays = parseInt(dayCount, 10) - 1;
+    } else if (departureTime && arrivalTime) {
+      const [depH, depM] = departureTime.split(':').map(Number);
+      const [arrH, arrM] = arrivalTime.split(':').map(Number);
+      if (!isNaN(depH) && !isNaN(arrH)) {
+        if (arrH < depH || (arrH === depH && arrM < depM)) {
+          addedDays = 1;
+        }
+      }
+    }
+
+    depDate.setDate(depDate.getDate() + addedDays);
+
+    const d = String(depDate.getDate()).padStart(2, '0');
+    const m = String(depDate.getMonth() + 1).padStart(2, '0');
+    const y = depDate.getFullYear();
+    const formatted = `${d}-${m}-${y}`;
+
+    return {
+      date: formatted,
+      tag: addedDays > 0 ? `+${addedDays}d` : null
+    };
   }
 
   function saveLegs() {
@@ -430,15 +508,17 @@
           const d = cached.data;
           const trainName = d.TrainName || d.trainName || 'Train';
           const trainNo = d.TrainNo || d.trainNumber || '';
-          const doj = d.Doj || d.dateOfJourney || '';
+
+          const deptTime = formatTime(d.DepartureTime || d.sourceTime || d.SourceTime);
+          const arrTime = formatTime(d.ArrivalTime || d.destinationTime || d.DestinationTime);
+
+          const startDate = extractDate(d);
+          const dayCount = d.DayCount || d.dayCount || d.NoOfDays || null;
+          const arrivalInfo = computeArrivalDate(startDate, deptTime, arrTime, dayCount);
+
           const chartPrepared = d.ChartPrepared ? 'Chart Prepared' : 'Chart Not Prepared';
           const passengers = d.PassengerStatus || d.passengers || [];
 
-          // Exact Departure & Arrival Timings
-          const deptTime = d.DepartureTime || d.sourceTime || d.SourceTime || '--:--';
-          const arrTime = d.ArrivalTime || d.destinationTime || d.DestinationTime || '--:--';
-
-          // Comprehensive station code & name extraction
           const fromCode = d.BoardingPoint || d.From || d.from || '';
           const fromName = d.BoardingStationName || d.FromStationName || d.fromStationName || '';
           const toCode = d.ReservationUpto || d.To || d.to || '';
@@ -450,20 +530,24 @@
           bodyHtml = `
             <div class="details-row">
               <div><strong>${trainNo} - ${trainName}</strong></div>
-              <div>📅 ${doj} | <span style="color: ${d.ChartPrepared ? 'var(--success)' : 'var(--warning)'}; font-weight: 500;">${chartPrepared}</span></div>
+              <div>📅 <strong>${startDate || 'Date not listed'}</strong> | <span style="color: ${d.ChartPrepared ? 'var(--success)' : 'var(--warning)'}; font-weight: 500;">${chartPrepared}</span></div>
             </div>
 
-            <!-- Start & End Timing Banner with Both Code & Full Name -->
+            <!-- Start & End Timing Banner with Overnight/Multi-day Handling -->
             <div class="timing-banner">
               <div class="timing-item">
                 <span class="timing-label">Boarding / Start</span>
                 <span class="timing-val">🕒 ${deptTime}</span>
+                <span class="timing-date">📅 ${startDate || '--'}</span>
                 <div class="station-display">${originDisplay}</div>
               </div>
               <div style="color: var(--text-muted); font-size: 1.2rem; text-align: center;">➔</div>
               <div class="timing-item" style="text-align: right;">
                 <span class="timing-label">Arrival / End</span>
                 <span class="timing-val">🕒 ${arrTime}</span>
+                <span class="timing-date">
+                  📅 ${arrivalInfo.date} ${arrivalInfo.tag ? `<span class="day-badge">${arrivalInfo.tag}</span>` : ''}
+                </span>
                 <div class="station-display">${destDisplay}</div>
               </div>
             </div>
