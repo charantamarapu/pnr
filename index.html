@@ -36,10 +36,7 @@
     }
 
     header {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      margin-bottom: 24px;
+      margin-bottom: 20px;
     }
 
     .top-bar {
@@ -53,54 +50,6 @@
       font-weight: 700;
       letter-spacing: -0.02em;
       display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .config-box {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 8px;
-      padding: 12px 16px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-    }
-
-    .config-box input {
-      flex: 1;
-      min-width: 250px;
-      background: #1f2937;
-      border: 1px solid #374151;
-      padding: 8px 12px;
-      border-radius: 6px;
-      color: #fff;
-      font-size: 0.85rem;
-    }
-
-    .btn {
-      padding: 8px 16px;
-      border-radius: 6px;
-      border: none;
-      cursor: pointer;
-      font-weight: 600;
-      font-size: 0.85rem;
-      transition: all 0.2s;
-    }
-
-    .btn-primary { background: var(--accent); color: white; }
-    .btn-primary:hover { background: var(--accent-hover); }
-    .btn-action { background: #374151; color: #fff; }
-    .btn-action:hover { background: #4b5563; }
-    .btn-refresh-all {
-      background: linear-gradient(135deg, #2563eb, #1d4ed8);
-      color: white;
-      font-size: 0.95rem;
-      padding: 10px 20px;
-      width: 100%;
-      display: flex;
-      justify-content: center;
       align-items: center;
       gap: 8px;
     }
@@ -124,6 +73,32 @@
       border-radius: 6px;
       color: #fff;
       font-size: 0.9rem;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+
+    .btn-action { background: #374151; color: #fff; }
+    .btn-action:hover { background: #4b5563; }
+    .btn-refresh-all {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      color: white;
+      font-size: 0.95rem;
+      padding: 10px 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-refresh-all:hover {
+      background: #1d4ed8;
     }
 
     .pnr-list {
@@ -226,13 +201,6 @@
     <div class="top-bar">
       <h1>🚆 Trip PNR Dashboard</h1>
     </div>
-
-    <!-- Cloudflare Worker Endpoint Input -->
-    <div class="config-box">
-      <label for="workerUrl" style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">Cloudflare Worker URL:</label>
-      <input type="url" id="workerUrl" placeholder="https://your-worker-name.workers.dev" />
-      <button class="btn btn-action" onclick="saveWorkerUrl()">Save</button>
-    </div>
   </header>
 
   <div class="controls-grid">
@@ -250,7 +218,10 @@
 </div>
 
 <script>
-  // Initial trip route data pre-loaded with your exact tickets
+  // Hardcoded Cloudflare Worker Endpoint
+  const WORKER_URL = "https://pnr.charantamarapu.workers.dev";
+
+  // Preloaded PNR numbers for your journey
   const defaultLegs = [
     { route: "Perambur → Nagpur", pnr: "4557771590" },
     { route: "Nagpur → Hazrat Nizamuddin", pnr: "4765547266" },
@@ -267,14 +238,6 @@
 
   let tripLegs = JSON.parse(localStorage.getItem('trip_pnrs')) || defaultLegs;
   let statusCache = JSON.parse(localStorage.getItem('status_cache') || '{}');
-
-  document.getElementById('workerUrl').value = localStorage.getItem('cf_worker_url') || '';
-
-  function saveWorkerUrl() {
-    const val = document.getElementById('workerUrl').value.trim();
-    localStorage.setItem('cf_worker_url', val);
-    alert('Worker URL saved!');
-  }
 
   function saveLegs() {
     localStorage.setItem('trip_pnrs', JSON.stringify(tripLegs));
@@ -312,28 +275,14 @@
   }
 
   async function fetchPnr(pnr) {
-    const workerUrl = localStorage.getItem('cf_worker_url');
-    if (!workerUrl) {
-      throw new Error('Please configure and save your Cloudflare Worker URL above.');
-    }
-
-    const cleanUrl = workerUrl.endsWith('/') ? workerUrl.slice(0, -1) : workerUrl;
-    const res = await fetch(`${cleanUrl}/?pnr=${pnr}`);
-    
+    const res = await fetch(`${WORKER_URL}/?pnr=${pnr}`);
     if (!res.ok) {
       throw new Error(`HTTP Error ${res.status}`);
     }
-
     return await res.json();
   }
 
   async function refreshAllPnrs() {
-    const workerUrl = localStorage.getItem('cf_worker_url');
-    if (!workerUrl) {
-      alert('Please enter and save your Cloudflare Worker URL first.');
-      return;
-    }
-
     const btn = document.getElementById('refreshBtn');
     btn.disabled = true;
     btn.innerHTML = '<span>⏳</span> Refreshing all...';
