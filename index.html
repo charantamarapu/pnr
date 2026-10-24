@@ -260,6 +260,52 @@
       font-size: 0.75rem;
       color: var(--text-muted);
     }
+
+    .btn-check-single {
+      background: #1f2937;
+      color: #93c5fd;
+      border: 1px solid #374151;
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 0.76rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s;
+    }
+    .btn-check-single:hover:not(:disabled) {
+      background: #2563eb;
+      color: #fff;
+      border-color: #2563eb;
+    }
+    .btn-check-single:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .btn-remove {
+      background: none;
+      border: none;
+      color: #ef4444;
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: background 0.2s;
+    }
+    .btn-remove:hover {
+      background: rgba(239, 68, 68, 0.15);
+    }
+
+    @keyframes spin {
+      100% { transform: rotate(360deg); }
+    }
+    .spinning {
+      display: inline-block;
+      animation: spin 1s linear infinite;
+    }
   </style>
 </head>
 <body>
@@ -276,6 +322,7 @@
       <input type="text" id="routeInput" placeholder="Route (e.g. Pune - Mumbai)" style="flex: 1;" />
       <input type="text" id="pnrInput" placeholder="10-digit PNR" maxlength="10" style="width: 140px;" />
       <button class="btn btn-action" onclick="addNewPnr()">Add Leg</button>
+      <button class="btn btn-action" onclick="addNewPnr(true)" style="background: #2563eb; color: #fff;" title="Add leg and check status immediately">Add & Check</button>
     </div>
     <button class="btn btn-refresh-all" id="refreshBtn" onclick="refreshAllPnrs()">
       <span>🔄</span> Check All Status
@@ -431,11 +478,13 @@
     };
   }
 
+  const loadingPnrs = {};
+
   function saveLegs() {
     localStorage.setItem('trip_pnrs', JSON.stringify(tripLegs));
   }
 
-  function addNewPnr() {
+  function addNewPnr(autoCheck = false) {
     const route = document.getElementById('routeInput').value.trim() || 'Train Journey';
     const pnr = document.getElementById('pnrInput').value.trim();
 
@@ -454,6 +503,10 @@
     renderCards();
     document.getElementById('routeInput').value = '';
     document.getElementById('pnrInput').value = '';
+
+    if (autoCheck) {
+      refreshSinglePnr(tripLegs.length - 1);
+    }
   }
 
   function removeLeg(index) {
@@ -492,10 +545,32 @@
     return trainData;
   }
 
+  async function refreshSinglePnr(idx) {
+    const leg = tripLegs[idx];
+    if (!leg || loadingPnrs[leg.pnr]) return;
+
+    loadingPnrs[leg.pnr] = true;
+    renderCards();
+
+    try {
+      const data = await fetchPnr(leg.pnr);
+      statusCache[leg.pnr] = { success: true, data, lastChecked: new Date().toLocaleTimeString() };
+    } catch (err) {
+      statusCache[leg.pnr] = { success: false, error: err.message, lastChecked: new Date().toLocaleTimeString() };
+    } finally {
+      delete loadingPnrs[leg.pnr];
+      localStorage.setItem('status_cache', JSON.stringify(statusCache));
+      renderCards();
+    }
+  }
+
   async function refreshAllPnrs() {
     const btn = document.getElementById('refreshBtn');
     btn.disabled = true;
     btn.innerHTML = '<span>⏳</span> Refreshing all...';
+
+    tripLegs.forEach(leg => { loadingPnrs[leg.pnr] = true; });
+    renderCards();
 
     await Promise.all(tripLegs.map(async (leg) => {
       try {
@@ -503,6 +578,8 @@
         statusCache[leg.pnr] = { success: true, data, lastChecked: new Date().toLocaleTimeString() };
       } catch (err) {
         statusCache[leg.pnr] = { success: false, error: err.message, lastChecked: new Date().toLocaleTimeString() };
+      } finally {
+        delete loadingPnrs[leg.pnr];
       }
     }));
 
@@ -533,11 +610,25 @@
 
     container.innerHTML = tripLegs.map((leg, idx) => {
       const cached = statusCache[leg.pnr];
-      let bodyHtml = `<div style="color: var(--text-muted); font-size: 0.85rem;">Click "Check All Status" to inspect latest booking and train timings.</div>`;
+      const isLoading = !!loadingPnrs[leg.pnr];
+
+      let bodyHtml = `
+        <div style="display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); font-size: 0.85rem; padding: 4px 0;">
+          <span>Not checked yet. Click "Check" to inspect booking and train timings.</span>
+          <button class="btn-check-single" onclick="refreshSinglePnr(${idx})" ${isLoading ? 'disabled' : ''}>
+            ${isLoading ? `<span class="spinning">🔄</span> Checking...` : `<span>🔄</span> Check Status`}
+          </button>
+        </div>`;
 
       if (cached) {
         if (!cached.success) {
-          bodyHtml = `<div class="badge-err" style="padding: 8px; border-radius: 4px; font-size: 0.8rem;">Error: ${cached.error}</div>`;
+          bodyHtml = `
+            <div class="badge-err" style="padding: 8px 12px; border-radius: 4px; font-size: 0.8rem; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+              <span>Error: ${cached.error}</span>
+              <button class="btn-check-single" style="border-color: rgba(239, 68, 68, 0.4); color: #fca5a5;" onclick="refreshSinglePnr(${idx})" ${isLoading ? 'disabled' : ''}>
+                ${isLoading ? `<span class="spinning">🔄</span> Checking...` : `<span>🔄</span> Retry`}
+              </button>
+            </div>`;
         } else {
           const d = cached.data;
           const trainName = d.TrainName || d.trainName || 'Train';
@@ -618,13 +709,16 @@
             <span class="route-title">${idx + 1}. ${leg.route}</span>
             <div style="display: flex; align-items: center; gap: 8px;">
               <span class="pnr-tag">${leg.pnr}</span>
-              <button onclick="removeLeg(${idx})" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 0.85rem;">✕</button>
+              <button class="btn-check-single" onclick="refreshSinglePnr(${idx})" ${isLoading ? 'disabled' : ''} title="Check status for this leg">
+                ${isLoading ? `<span class="spinning">🔄</span> Checking...` : `<span>🔄</span> Check`}
+              </button>
+              <button onclick="removeLeg(${idx})" class="btn-remove" title="Remove leg">✕</button>
             </div>
           </div>
           ${bodyHtml}
           <div class="card-footer">
             <span>Leg ${idx + 1} of ${tripLegs.length}</span>
-            <span>${cached ? `Updated: ${cached.lastChecked}` : ''}</span>
+            <span>${cached ? `Updated: ${cached.lastChecked}` : 'Not checked'}</span>
           </div>
         </div>
       `;
